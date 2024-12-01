@@ -1,28 +1,34 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, redirect, url_for
 from models.db import db
+from pymongo import MongoClient
 
 carritos_bp = Blueprint('carritos', __name__)
 
-# Crear un carrito (si no existe para el usuario)
-@carritos_bp.route('/carrito/<usuario>', methods=['POST'])
+client = MongoClient("mongodb://localhost:27017/")
+db = client['TiendaAlpaca']
+
+@carritos_bp.route('/carrito/<usuario>/crear', methods=['POST'])
 def crear_carrito(usuario):
+    # Verificar si ya existe un carrito para este usuario
     carrito = db.carritos.find_one({"usuario": usuario})
     if carrito:
         return jsonify({"mensaje": "El carrito ya existe"}), 400
+
+    # Crear el carrito
     nuevo_carrito = {
         "usuario": usuario,
         "productos": [],
         "total": 0.00
     }
     db.carritos.insert_one(nuevo_carrito)
+
     return jsonify({"mensaje": "Carrito creado exitosamente"}), 201
 
-# Añadir un producto al carrito
 @carritos_bp.route('/carrito/<usuario>/agregar', methods=['POST'])
 def agregar_producto(usuario):
-    datos = request.json
-    producto_id = datos["producto_id"]
-    cantidad = datos["cantidad"]
+    # Obtener los datos del formulario
+    producto_id = request.form["producto_id"]
+    cantidad = int(request.form["cantidad"])
 
     # Obtener el producto desde la colección de productos
     producto = db.productos.find_one({"_id": producto_id})
@@ -34,32 +40,37 @@ def agregar_producto(usuario):
     if not carrito:
         return jsonify({"mensaje": "El carrito no existe"}), 404
 
-    # Usar el campo 'precio' en lugar de 'precio_unitario'
-    precio_unitario = producto.get("precio", 0)  # Usamos 'precio' como está en la base de datos
+    precio_unitario = producto.get("precio", 0)
     if precio_unitario == 0:
         return jsonify({"mensaje": "Producto sin precio disponible"}), 400
 
     # Verificar si el producto ya está en el carrito
+    producto_en_carrito = False
     for p in carrito["productos"]:
         if p["producto_id"] == producto_id:
+            # Si el producto ya está en el carrito, actualizamos la cantidad y el subtotal
             p["cantidad"] += cantidad
-            # Asegurarse de que el 'subtotal' esté presente y actualizado
             p["subtotal"] = p["cantidad"] * precio_unitario
+            producto_en_carrito = True
             break
-    else:
-        # Si el producto no está, lo agregamos con el campo 'subtotal'
+    
+    if not producto_en_carrito:
+        # Si el producto no está en el carrito, lo añadimos
         carrito["productos"].append({
             "producto_id": producto_id,
             "nombre": producto["nombre"],
             "cantidad": cantidad,
-            "precio": precio_unitario,  # Guardamos el precio
-            "subtotal": cantidad * precio_unitario  # Calculamos y agregamos el subtotal
+            "precio": precio_unitario,
+            "subtotal": cantidad * precio_unitario
         })
 
     # Actualizar el total del carrito
-    carrito["total"] = sum(p.get("subtotal", 0) for p in carrito["productos"])  # Usar .get() para evitar KeyError
-    db.carritos.update_one({"usuario": usuario}, {"$set": carrito})
-    return jsonify({"mensaje": "Producto añadido al carrito"}), 200
+    carrito["total"] = sum(p.get("subtotal", 0) for p in carrito["productos"])
+
+    # Actualizar el carrito en la base de datos
+    db.carritos.update_one({"usuario": usuario}, {"$set": {"productos": carrito["productos"], "total": carrito["total"]}})
+
+    return redirect(url_for('carritos.ver_carrito', usuario=usuario))
 
 # Ver el carrito
 @carritos_bp.route('/carrito/<usuario>', methods=['GET'])

@@ -25,8 +25,16 @@
                 <td>${{ producto['precio'] }}</td>
                 <td>${{ producto['subtotal'] }}</td>
                 <td>
+                    <!-- Formulario para añadir más productos -->
+                    <form action="{{ url_for('carritos.agregar_producto', usuario=usuario) }}" method="POST">
+                        <input type="hidden" name="producto_id" value="{{ producto['_id'] }}">
+                        <input type="number" name="cantidad" value="1" min="1" required>
+                        <button type="submit" class="btn btn-primary">Añadir al carrito</button>
+                    </form>                    
+
+                    <!-- Formulario para quitar productos -->
                     <form action="{{ url_for('carritos.quitar_producto', usuario=usuario) }}" method="POST">
-                        <input type="hidden" name="producto_id" value="{{ producto['producto_id'] }}">
+                        <input type="hidden" name="producto_id" value="{{ producto['_id'] }}">
                         <button type="submit" class="btn btn-danger">Quitar</button>
                     </form>
                 </td>
