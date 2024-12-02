@@ -1,163 +1,250 @@
-from flask import Flask, render_template, jsonify, request, redirect, url_for
-from pymongo import MongoClient
-import uuid
-from routes.productos import productos_bp
-from routes.carritos import carritos_bp, crear_carrito  # Importa carritos antes de registrar el Blueprint
+from flask import Flask, request, jsonify, Response, render_template, redirect, url_for, session
+from flask_pymongo import PyMongo
+from bson import json_util
+from bson.objectid import ObjectId
+import random
 
 app = Flask(__name__)
+app.config['MONGO_URI'] = "mongodb://localhost:27017/TiendaAlpaca"
+mongo = PyMongo(app)
 
-# Conexión a MongoDB
-client = MongoClient("mongodb://localhost:27017/")
-db = client['TiendaAlpaca']
+app.secret_key = '123'
 
-# Registrar los Blueprints
-app.register_blueprint(productos_bp)
-app.register_blueprint(carritos_bp)  # Registra carritos después de productos
-
-# Ruta para el registro de usuario
-@app.route('/registro', methods=['GET', 'POST'])
-def registro():
-    if request.method == 'POST':
-        datos = request.form
-        nombre = datos['nombre']
-        email = datos['email']
-        direccion = datos['direccion']
-        telefono = datos['telefono']
-
-        # Verificar si ya existe un usuario con ese email
-        usuario_existente = db.usuarios.find_one({"email": email})
-        if usuario_existente:
-            return jsonify({"mensaje": "El usuario ya existe"}), 400
-
-        # Crear el nuevo usuario
-        nuevo_usuario = {
-            "nombre": nombre,
-            "email": email,
-            "direccion": direccion,
-            "telefono": telefono,
-            "carrito_id": None  # Al principio no tendrá un carrito asociado
-        }
-        db.usuarios.insert_one(nuevo_usuario)
-
-        return redirect(url_for('login'))  # Redirige a la página de login después del registro
-
-    return render_template("registro.html")
-
-# Ruta para login de usuario
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        datos = request.form
-        email = datos['email']
-        usuario = db.usuarios.find_one({"email": email})
-
-        if not usuario:
-            return jsonify({"mensaje": "Usuario no encontrado"}), 404
-
-        # Si el usuario existe, asociamos el carrito con el usuario
-        carrito = db.carritos.find_one({"usuario": usuario["_id"]})
-        if not carrito:
-            carrito = crear_carrito(usuario["_id"])
-
-        # Redirigir al carrito del usuario
-        return redirect(url_for('ver_carrito', usuario_id=usuario["_id"]))  # Cambié 'usuario' a 'usuario_id'
-
-    return render_template("login.html")
-
-@app.route("/")
+# Ruta principal
+@app.route('/')
 def index():
-    # Redirige al carrito si el usuario está logueado, de lo contrario, muestra las categorías
-    usuario_id = request.cookies.get('usuario_id')  # Usando cookie, puede ser sesión también
-    if usuario_id:
-        return redirect(url_for('ver_carrito', usuario_id=usuario_id))
+    products = mongo.db.Products.find()
+    return render_template('index.html', products=products)
 
-    categorias = list(db.categorias.find())
-    return render_template("index.html", categorias=categorias)
+@app.route('/pago_exitoso')
+def pago_exitoso():
+    return render_template('pago_exitoso.html')
 
-@app.route("/productos/<categoria_id>")
-def productos(categoria_id):
-    productos = list(db.productos.find({"categoria": categoria_id}))
-    return render_template("productos.html", productos=productos)
+@app.route('/viewProducts')
+def viewProducts():
+    products = mongo.db.Products.find()
+    return render_template('productos.html', products=products)
 
-# Ruta para ver el carrito del usuario
-@app.route('/carrito/<usuario_id>', methods=['GET'])
-def ver_carrito(usuario_id):
-    usuario = db.usuarios.find_one({"_id": usuario_id})
-    if not usuario:
-        return jsonify({"mensaje": "Usuario no encontrado"}), 404
+# CLIENTES (CRUD)
+@app.route('/Clients', methods=['POST'])
+def create_client():
+    try:
+        username = request.json['username']
+        email = request.json['email']
+        address = request.json['address']
+        credit_card = request.json['credit_card']
 
-    carrito = db.carritos.find_one({"usuario": usuario["_id"]})
-    if not carrito:
-        carrito = crear_carrito(usuario["_id"])
+        if username and email and address and credit_card:
+            id = mongo.db.Clients.insert_one(
+                {'username': username, 'email': email, 'address': address, 'credit_card': credit_card}
+            )
+            response = {
+                'id': str(id),
+                'username': username,
+                'email': email,
+                'address': address,
+                'credit_card': credit_card
+            }
+            return response
+        else:
+            return not_found()
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
-    return render_template("carrito.html", carrito=carrito, usuario=usuario)
+@app.route('/Clients', methods=['GET'])
+def get_clients():
+    try:
+        clients = mongo.db.Clients.find()
+        response = json_util.dumps(clients)
+        return Response(response, mimetype="application/json")
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
-@app.route('/carrito/<usuario_id>/quitar', methods=['POST'])
-def quitar_producto(usuario_id):
-    datos = request.form
-    producto_id = datos["producto_id"]
+@app.route('/Clients/<id>', methods=['GET'])
+def get_client(id):
+    try:
+        client = mongo.db.Clients.find_one({'_id': ObjectId(id)})
+        response = json_util.dumps(client)
+        return Response(response, mimetype="application/json")
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
-    # Buscar el carrito del usuario
-    carrito = db.carritos.find_one({"usuario": usuario_id})
-    if not carrito:
-        return jsonify({"mensaje": "El carrito no existe"}), 404
+# CATEGORÍAS
+@app.route('/Category', methods=['POST'])
+def create_category():
+    try:
+        name = request.json['name']
+        description = request.json['description']
 
-    # Eliminar el producto del carrito
-    carrito["productos"] = [p for p in carrito["productos"] if p["producto_id"] != producto_id]
+        if name and description:
+            id = mongo.db.Category.insert_one({'name': name, 'description': description})
+            response = {
+                'id': str(id),
+                'name': name,
+                'description': description
+            }
+            return response
+        else:
+            return not_found()
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
-    # Actualizar el total
-    carrito["total"] = sum(p.get("subtotal", 0) for p in carrito["productos"])
-    db.carritos.update_one({"usuario": usuario_id}, {"$set": carrito})
+@app.route('/Category', methods=['GET'])
+def get_categories():
+    try:
+        categories = mongo.db.Category.find()
+        response = json_util.dumps(categories)
+        return Response(response, mimetype="application/json")
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
-    return redirect(url_for('ver_carrito', usuario_id=usuario_id))  # Redirigir al carrito actualizado
+# PRODUCTOS
+@app.route('/Product', methods=['POST'])
+def create_product():
+    try:
+        name = request.json['name']
+        description = request.json['description']
+        category_id = request.json['category_id']
+        price = request.json['price']
+        material = request.json['material']
+        gender = request.json['gender']
+        sizes = request.json['sizes']
+        colors = request.json['colors']
+        stock = request.json['stock']
 
-@app.route('/carrito/<usuario_id>/agregar', methods=['POST'])
-def agregar_producto(usuario_id):
-    # Obtener los datos del formulario
-    producto_id = request.form["producto_id"]
-    cantidad = int(request.form["cantidad"])
+        category_id = ObjectId(category_id)
 
-    # Obtener el producto desde la colección de productos
-    producto = db.productos.find_one({"_id": producto_id})
-    if not producto:
-        return jsonify({"mensaje": "Producto no encontrado"}), 404
+        if name and description and price and category_id and material:
+            id = mongo.db.Products.insert_one(
+                {
+                    'name': name, 'description': description, 'category_id': category_id,
+                    'price': price, 'material': material, 'gender': gender, 'sizes': sizes,
+                    'colors': colors, 'stock': stock
+                }
+            )
+            response = {
+                'id': str(id),
+                'name': name,
+                'description': description,
+                'category_id': str(category_id),
+                'price': price,
+                'material': material,
+                'gender': gender,
+                'sizes': sizes,
+                'colors': colors,
+                'stock': stock
+            }
+            return response
+        else:
+            return not_found()
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
-    # Buscar el carrito del usuario
-    carrito = db.carritos.find_one({"usuario": usuario_id})
-    if not carrito:
-        return jsonify({"mensaje": "El carrito no existe"}), 404
+@app.route('/Products', methods=['GET'])
+def get_products():
+    try:
+        products = mongo.db.Products.aggregate(
+            [
+                {
+                    '$lookup': {
+                        'from': 'Category',
+                        'localField': 'category_id',
+                        'foreignField': '_id',
+                        'as': 'category'
+                    }
+                },
+                {
+                    '$unwind': '$category'
+                }
+            ]
+        )
+        response = json_util.dumps(products)
+        return Response(response, mimetype="application/json")
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
-    precio_unitario = producto.get("precio", 0)
-    if precio_unitario == 0:
-        return jsonify({"mensaje": "Producto sin precio disponible"}), 400
+# CARRITO
+@app.route('/add_to_cart/<product_id>', methods=['POST'])
+def add_to_cart(product_id):
+    product = mongo.db.Products.find_one({"_id": ObjectId(product_id)})
+    cart_item = {
+        'id': str(product['_id']),
+        'name': product['name'],
+        'price': float(product['price']),
+        'image': product.get('image', '')  # Imagen opcional
+    }
 
-    # Verificar si el producto ya está en el carrito
-    producto_en_carrito = False
-    for p in carrito["productos"]:
-        if p["producto_id"] == producto_id:
-            # Si el producto ya está en el carrito, actualizamos la cantidad y el subtotal
-            p["cantidad"] += cantidad
-            p["subtotal"] = p["cantidad"] * precio_unitario
-            producto_en_carrito = True
-            break
-    
-    if not producto_en_carrito:
-        # Si el producto no está en el carrito, lo añadimos
-        carrito["productos"].append({
-            "producto_id": producto_id,
-            "nombre": producto["nombre"],
-            "cantidad": cantidad,
-            "precio": precio_unitario,
-            "subtotal": cantidad * precio_unitario
-        })
+    if 'cart' not in session:
+        session['cart'] = []
 
-    # Actualizar el total del carrito
-    carrito["total"] = sum(p.get("subtotal", 0) for p in carrito["productos"])
+    session['cart'].append(cart_item)
+    session.modified = True
+    return redirect(url_for('view_cart'))
 
-    # Actualizar el carrito en la base de datos
-    db.carritos.update_one({"usuario": usuario_id}, {"$set": {"productos": carrito["productos"], "total": carrito["total"]}})
+@app.route('/cart')
+def view_cart():
+    cart = session.get('cart', [])
+    total = sum(item['price'] for item in cart)
+    return render_template('carrito.html', cart=cart, total=total)
 
-    return redirect(url_for('ver_carrito', usuario_id=usuario_id))
+@app.route('/remove_from_cart/<product_id>', methods=['POST'])
+def remove_from_cart(product_id):
+    cart = session.get('cart', [])
+    cart = [item for item in cart if item['id'] != product_id]
+    session['cart'] = cart
+    session.modified = True
+    return redirect(url_for('view_cart'))
+@app.route('/checkout', methods=['GET', 'POST'])
+def checkout():
+    # Si el método es POST, procesamos el pago
+    if request.method == 'POST':
+        # Simulamos la aprobación o rechazo del pago
+        payment_successful = random.random() < 0.8  # 80% de probabilidad de que el pago sea exitoso
+        
+        # Obtener los detalles del pago
+        payment_method = request.form['payment_method']
+        address = request.form['address']
+
+        if payment_method == 'credit_card':
+            card_number = request.form['card_number']
+        else:
+            paypal_email = request.form['paypal_email']
+
+        # Obtener el carrito y el total
+        cart = session.get('cart', [])
+        total = sum(item['price'] for item in cart)
+
+        # Si el pago fue exitoso, guardamos el pedido en la base de datos
+        if payment_successful:
+            # Simulación de guardar el pedido en la base de datos
+            order = {
+                'client_id': session.get('client_id'),  # Suponemos que el client_id está en la sesión
+                'items': cart,
+                'total': total,
+                'payment_status': 'Aprobado',
+                'payment_method': payment_method,
+                'shipping_address': address,
+            }
+            mongo.db.Orders.insert_one(order)
+            session['cart'] = []  # Vaciar el carrito después de la compra exitosa
+            return render_template('pago_exitoso.html', total=total)
+        else:
+            return render_template('pago_fallido.html', total=total)
+
+    # Si es GET, mostramos el formulario de checkout
+    cart = session.get('cart', [])
+    total = sum(item['price'] for item in cart)
+    return render_template('checkout.html', total=total)
+# Error 404
+@app.errorhandler(404)
+def not_found(error=None):
+    response = jsonify({
+        'message': 'Resource Not Found: ' + request.url,
+        'status': 404
+    })
+    response.status_code = 404
+    return response
 
 if __name__ == "__main__":
     app.run(debug=True)
+

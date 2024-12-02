@@ -1,52 +1,63 @@
-{% extends "base.html" %}
-
-{% block title %}Carrito{% endblock %}
-
-{% block content %}
-<h1 class="text-center">Carrito de Compras</h1>
-
-{% if carrito['productos'] %}
-<div class="table-responsive">
-    <table class="table table-bordered">
-        <thead>
-            <tr>
-                <th>Producto</th>
-                <th>Cantidad</th>
-                <th>Precio</th>
-                <th>Subtotal</th>
-                <th>Acciones</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for producto in carrito['productos'] %}
-            <tr>
-                <td>{{ producto['nombre'] }}</td>
-                <td>{{ producto['cantidad'] }}</td>
-                <td>${{ producto['precio'] }}</td>
-                <td>${{ producto['subtotal'] }}</td>
-                <td>
-                    <!-- Formulario para añadir más productos -->
-                    <form action="{{ url_for('carritos.agregar_producto', usuario=usuario) }}" method="POST">
-                        <input type="hidden" name="producto_id" value="{{ producto['_id'] }}">
-                        <input type="number" name="cantidad" value="1" min="1" required>
-                        <button type="submit" class="btn btn-primary">Añadir al carrito</button>
-                    </form>                    
-
-                    <!-- Formulario para quitar productos -->
-                    <form action="{{ url_for('carritos.quitar_producto', usuario=usuario) }}" method="POST">
-                        <input type="hidden" name="producto_id" value="{{ producto['_id'] }}">
-                        <button type="submit" class="btn btn-danger">Quitar</button>
-                    </form>
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-
-    <h3>Total: ${{ carrito['total'] }}</h3>
-    <a href="{{ url_for('checkout') }}" class="btn btn-success">Finalizar Compra</a>
-</div>
-{% else %}
-<p class="text-center">Tu carrito está vacío.</p>
-{% endif %}
-{% endblock %}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Carrito de Compras - Tienda de Ropa de Alpaca</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/indexStyles.css') }}">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Tienda de Ropa de Alpaca</h1>
+            <nav>
+                <ul>
+                    <li><a href="{{ url_for('index') }}">Inicio</a></li>
+                    <li><a href="{{ url_for('viewProducts') }}">Productos</a></li>
+                    <li><a href="{{ url_for('index') }}#about">Nosotros</a></li>
+                    <li><a href="{{ url_for('index') }}#contact">Contacto</a></li>
+                    <li><a href="{{ url_for('view_cart') }}" class="btn">Ver Carrito</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+    
+    <main>
+        <section id="cart" class="cart">
+            <div class="container">
+                <h2>Carrito de Compras</h2>
+                {% if cart %}
+                    <div class="cart-items">
+                        <ul>
+                            {% for item in cart %}
+                                <li class="cart-item">
+                                    <img src="{{ item['image'] }}" alt="{{ item['name'] }}" class="cart-item-image">
+                                    <div class="cart-item-details">
+                                        <h3>{{ item['name'] }}</h3>
+                                        <p>Precio: ${{ item['price'] }}</p>
+                                        <form action="{{ url_for('remove_from_cart', product_id=item['id']) }}" method="POST">
+                                            <button type="submit" class="btn">Eliminar</button>
+                                        </form>
+                                    </div>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    <div class="cart-total">
+                        <h3>Total: ${{ total }}</h3>
+                        <a href="{{ url_for('checkout') }}" class="btn">Proceder al Pago</a>
+                    </div>
+                {% else %}
+                    <p>Tu carrito está vacío. <a href="{{ url_for('viewProducts') }}">Añadir productos</a>.</p>
+                {% endif %}
+            </div>
+        </section>
+    </main>
+    
+    <footer>
+        <div class="container">
+            <p>&copy; 2024 Tienda de Ropa de Alpaca. Todos los derechos reservados.</p>
+        </div>
+    </footer>
+</body>
+</html>
